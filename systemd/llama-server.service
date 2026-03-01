@@ -1,0 +1,24 @@
+[Unit]
+Description=llama.cpp server (Qwen3.5-35B-A3B)
+After=network.target
+Before=llama-proxy.service
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+ExecStart=/usr/local/bin/llama-server \
+    --model /opt/llama.cpp/models/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \
+    --ctx-size 131072 \
+    --parallel 1 \
+    --host 127.0.0.1 \
+    --port 8001 \
+    -ngl 99 \
+    -fa on
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/var/log/llama-server.log
+StandardError=append:/var/log/llama-server.log
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

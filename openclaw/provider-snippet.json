@@ -1,0 +1,32 @@
+{
+  "_comment": "Add the 'providers' block to your ~/.openclaw/openclaw.json, and add the model alias to agents.defaults.models",
+
+  "providers": {
+    "llamacpp": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "apiKey": "llamacpp-local",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "Qwen3.5-35B-A3B",
+          "name": "Qwen3.5-35B-A3B (local)",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 131072,
+          "maxTokens": 32768
+        }
+      ]
+    }
+  },
+
+  "_comment_alias": "Add this entry inside your existing agents.defaults.models object",
+  "agents.defaults.models": {
+    "llamacpp/Qwen3.5-35B-A3B": { "alias": "qwen" }
+  }
+}
