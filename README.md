@@ -1,16 +1,17 @@
-# llama.cpp + openclaw on NVIDIA DGX Spark (GB10)
+# llama.cpp + openclaw on AMD Strix Halo
 
-Run **Qwen3.5-35B-A3B** locally on the DGX Spark and use it inside **openclaw** as a fully functional AI agent — including tool calls and on-demand reasoning mode.
+Run **Qwen3-Coder-Next** locally on an AMD Strix Halo APU and use it inside **openclaw** as a fully functional AI coding agent — with tool calls and on-demand reasoning mode.
+
+This is a fork of [ZengboJamesWang/Qwen3.5-35B-A3B-openclaw-dgx-spark](https://github.com/ZengboJamesWang/Qwen3.5-35B-A3B-openclaw-dgx-spark) adapted for AMD Strix Halo instead of NVIDIA DGX Spark.
 
 ## Hardware
 
-Tested on **NVIDIA DGX Spark** (GB10 Superchip, sm_121, ~122 GB unified memory).  
-The Qwen3.5-35B-A3B MoE model uses ~20 GB, leaving ~100 GB free for context and other workloads.
+Tested on **AMD Strix Halo** (Radeon 8060S, gfx1151, ~90 GB unified memory accessible to GPU).  
+The Qwen3-Coder-Next Q4_K_M model uses ~21 GB, leaving ample headroom for context and workloads.
 
 | Metric | Value |
 |--------|-------|
-| Generation speed | ~43 tok/s |
-| Prefill speed | ~63 tok/s |
+| Generation speed | ~45 tok/s |
 | Context window | 128k tokens |
 
 ---
@@ -19,7 +20,7 @@ The Qwen3.5-35B-A3B MoE model uses ~20 GB, leaving ~100 GB free for context and 
 
 | File | Purpose |
 |------|---------|
-| `scripts/install.sh` | Builds llama.cpp from source with CUDA (sm_121) and downloads the model |
+| `scripts/install.sh` | Builds llama.cpp from source with HIP/ROCm (gfx1151) |
 | `scripts/setup-openclaw.sh` | Installs the proxy and systemd units |
 | `proxy/llama-proxy.py` | Proxy that makes llama-server compatible with openclaw |
 | `systemd/llama-server.service` | systemd unit for llama-server (port 8001) |
@@ -28,10 +29,77 @@ The Qwen3.5-35B-A3B MoE model uses ~20 GB, leaving ~100 GB free for context and 
 
 ---
 
+## Prerequisites
+
+### 1. ROCm
+
+`llama.cpp` on Strix Halo requires **ROCm 7.x**. Install from AMD's official repo:
+
+```bash
+# Ubuntu 24.04 example
+sudo apt-get install -y curl
+curl -LO https://repo.radeon.com/rocm/rocm.gpg.key
+sudo mkdir -p /etc/apt/keyrings
+sudo mv rocm.gpg.key /etc/apt/keyrings/rocm.gpg
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/latest noble main" \
+    | sudo tee /etc/apt/sources.list.d/rocm.list
+sudo apt-get update -qq
+sudo apt-get install -y rocm-hip-sdk
+```
+
+Verify your GPU is visible:
+
+```bash
+rocminfo | grep -E "Name|gfx"
+# Expected: gfx1151 (Radeon 8060S)
+# Also check:  ggml_cuda_init: found 1 ROCm devices
+```
+
+Also ensure `rocwmma-dev` is installed (required for flash attention):
+
+```bash
+sudo apt-get install -y rocwmma-dev
+```
+
+### 2. Kernel TTM parameters (critical)
+
+Strix Halo shares system RAM with the GPU, but Linux caps GPU-accessible memory by default. You **must** increase TTM limits to use >80 GB.
+
+Add to `/etc/modprobe.d/increase_amd_memory.conf`:
+
+```
+options ttm pages_limit=25600000
+options ttm page_pool_size=25600000
+```
+
+Then apply and reboot:
+
+```bash
+sudo update-initramfs -u -k all
+sudo reboot
+```
+
+Verify it applied:
+
+```bash
+cat /proc/cmdline | grep ttm
+# You should see: ttm.page_pool_size=25600000 ttm.pages_limit=25600000
+```
+
+### 3. Model
+
+This repo does not download a model for you. Provide your own Qwen3-Coder-Next GGUF files.
+
+Point `setup-openclaw.sh` at your model directory by setting `MODEL_PATH` env var, or edit the script directly. Multi-part GGUF files (shards) are supported — point to the directory, not an individual file.
+
+Default expected path: `/srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M`
+
+---
+
 ## Quick start
 
 ```bash
-# 1. Build llama.cpp and download model
+# 1. Build llama.cpp (HIP/ROCm for Strix Halo)
 sudo bash scripts/install.sh
 
 # 2. Install proxy + systemd services
@@ -40,88 +108,66 @@ sudo bash scripts/setup-openclaw.sh
 # 3. Add the provider to openclaw (see Section 3 below)
 ```
 
+Custom model path:
+
+```bash
+MODEL_PATH=/path/to/your/model sudo bash scripts/setup-openclaw.sh
+```
+
 ---
 
-## Section 1 — Install llama.cpp and the Qwen model
+## Build details
 
-See [`scripts/install.sh`](scripts/install.sh) for the full automated script, or follow the steps below manually.
-
-### Prerequisites
+`scripts/install.sh` builds llama.cpp with the following flags for Strix Halo:
 
 ```bash
-sudo apt-get install -y git cmake build-essential patchelf
-# CUDA toolkit must already be installed (comes with DGX Spark OS image)
+export HIPCC="$(hipconfig -l)/clang"
+export HIP_PATH="$(hipconfig -R)"
+
+cmake -S . -B build \
+    -DGGML_HIP=ON \
+    -DGPU_TARGETS=gfx1151 \
+    -DGGML_HIP_ROCWMMA_FATTN=ON \
+    -DGGML_HIP_NO_VMM=ON \
+    -DGGML_HIP_MMQ_MFMA=ON \
+    -DCMAKE_BUILD_TYPE=Release
 ```
 
-### Build llama.cpp
+| Flag | Purpose |
+|------|---------|
+| `GGML_HIP=ON` | Enable HIP/ROCm backend |
+| `GPU_TARGETS=gfx1151` | Strix Halo GPU arch — **mandatory**, don't use defaults |
+| `GGML_HIP_ROCWMMA_FATTN=ON` | rocWMMA flash attention — significant perf boost |
+| `GGML_HIP_NO_VMM=ON` | Disable HIP VMM — **required**, VMM doesn't work on this GPU |
+| `GGML_HIP_MMQ_MFMA=ON` | Improves matrix multiply path |
 
-```bash
-git clone https://github.com/ggerganov/llama.cpp /opt/llama.cpp
-cd /opt/llama.cpp
+---
 
-cmake -B build \
-  -DGGML_CUDA=ON \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CUDA_ARCHITECTURES=120
-cmake --build build --config Release -j $(nproc)
+## llama-server runtime flags
 
-# Make binary available system-wide
-ln -sf /opt/llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
-
-# Register shared libs
-echo "/opt/llama.cpp/build/bin" > /etc/ld.so.conf.d/llama.conf
-ldconfig
-```
-
-> **Note on CUDA arch:** GB10 is `sm_121`. The build uses `120` (the closest supported
-> target in current llama.cpp). Do not use `native` — cmake may fail to detect sm_121.
-
-### Download the model
-
-```bash
-mkdir -p /opt/llama.cpp/models
-pip install huggingface_hub
-
-huggingface-cli download \
-  unsloth/Qwen3.5-35B-A3B-GGUF \
-  --include "Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf" \
-  --local-dir /opt/llama.cpp/models/
-```
-
-**Why this model?**
-- `UD` = Unsloth Dynamic quantisation — smarter bit allocation than standard Q4_K_XL
-- Only ~20 GB vs ~37 GB for the original full-size quant
-- ~43 tok/s on GB10 vs ~21 tok/s for the larger quant
-
-### Start llama-server
+The systemd unit and `setup-openclaw.sh` use these flags:
 
 ```bash
 llama-server \
-  --model /opt/llama.cpp/models/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \
-  --ctx-size 131072 \
-  --parallel 1 \
-  --host 127.0.0.1 \
-  --port 8001 \
-  -ngl 99 \
-  -fa on
+    --model /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M \
+    --ctx-size 131072 \
+    --parallel 1 \
+    --host 127.0.0.1 \
+    --port 8001 \
+    -ngl 999 \
+    -fa on \
+    -dio \
+    --jinja
 ```
-
-Key flags:
 
 | Flag | Effect |
 |------|--------|
-| `-ngl 99` | Offload all layers to GPU |
-| `-fa on` | Flash attention — significant speed boost |
+| `-ngl 999` | Offload all layers to GPU (use 999, not 99) |
+| `-fa on` | Flash attention (requires `GGML_HIP_ROCWMMA_FATTN=ON` at build time) |
+| `-dio` | **Required for models >~6 GB** — without this, loading hangs |
+| `--jinja` | Enable Jinja chat template processing |
 | `--parallel 1` | Best single-user throughput |
 | `--ctx-size 131072` | 128k context |
-| `--host 127.0.0.1` | Loopback only — the proxy is the public interface |
-
-Verify it started:
-
-```bash
-curl http://127.0.0.1:8001/health
-# {"status":"ok"}
-```
 
 ---
 
@@ -171,13 +217,9 @@ sudo bash scripts/setup-openclaw.sh
 Or manually:
 
 ```bash
-# Copy proxy script
 cp proxy/llama-proxy.py /opt/llama.cpp/llama-proxy.py
-
-# Install systemd units
 cp systemd/llama-server.service /etc/systemd/system/
 cp systemd/llama-proxy.service  /etc/systemd/system/
-
 systemctl daemon-reload
 systemctl enable llama-server llama-proxy
 systemctl start  llama-server llama-proxy
@@ -195,12 +237,10 @@ curl http://127.0.0.1:8000/health
 Prefix any message in openclaw with `[think]` to enable reasoning:
 
 ```
-[think] why is my recursive fibonacci O(2^n) and how do I fix it?
+[think] explain the difference between a mutex and a semaphore
 ```
 
-The keyword is stripped before the model sees it. The response will include the model's
-full reasoning chain alongside the answer.  
-Use it for: hard debugging, complex architecture decisions, math, logic.
+The keyword is stripped before the message reaches the model.
 
 ---
 
@@ -219,9 +259,9 @@ In your `openclaw.json`, merge the following into `"models" > "providers"`:
   "api": "openai-completions",
   "models": [
     {
-      "id": "Qwen3.5-35B-A3B",
-      "name": "Qwen3.5-35B-A3B (local)",
-      "reasoning": true,
+      "id": "Qwen3-Coder-Next-Q4_K_M",
+      "name": "Qwen3-Coder-Next (local, Strix Halo)",
+      "reasoning": false,
       "input": ["text"],
       "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
       "contextWindow": 131072,
@@ -234,18 +274,13 @@ In your `openclaw.json`, merge the following into `"models" > "providers"`:
 And in `"agents" > "defaults" > "models"`, add an alias:
 
 ```json
-"llamacpp/Qwen3.5-35B-A3B": {
-  "alias": "qwen"
+"llamacpp/Qwen3-Coder-Next-Q4_K_M": {
+  "alias": "coder"
 }
 ```
 
-You can now select the model in openclaw with `/model qwen` or set it as your primary
+You can now select the model in openclaw with `/model coder` or set it as your primary
 model in the `agents.defaults.model.primary` field.
-
-### Verify tool calls work
-
-Send a message that triggers a tool (e.g. a web search). If the proxy is running and
-the roles are being rewritten, the tool call will complete without errors.
 
 ---
 
@@ -260,16 +295,16 @@ sudo systemctl restart llama-server
 
 ---
 
-## GPU memory reference (NVIDIA GB10)
+## GPU memory reference (AMD Strix Halo)
 
-| Model | Quant | VRAM |
-|-------|-------|------|
+| Model | Quant | GPU-accessible memory |
+|-------|-------|----------------------|
+| Qwen3-Coder-Next | Q4_K_M | ~21 GB |
 | Qwen3.5-35B-A3B | UD-Q4_K_XL | ~20 GB |
-| Qwen3.5-35B-A3B | Q4_K_XL (original) | ~37 GB |
 | 70B dense | Q4_K_M | ~40 GB |
 | 120B dense | Q4_K_M | ~70 GB |
 
-Total unified memory: ~122 GB. KV cache adds on top of model size (~0.5 GB per 32k context with flash attention).
+Strix Halo has ~90 GB GPU-accessible unified memory (up to 128 GB depending on config). KV cache adds ~0.5 GB per 32k context with flash attention.
 
 ---
 
@@ -277,17 +312,44 @@ Total unified memory: ~122 GB. KV cache adds on top of model size (~0.5 GB per 3
 
 ### `HTTP 500: Unexpected message role`
 The proxy is not running or openclaw is not pointing at port 8000.
+
 ```bash
 systemctl status llama-proxy
 curl http://127.0.0.1:8000/health
 ```
 
-### No response / empty content
-The model is in thinking mode and exhausted its token budget before answering.
-Make sure the proxy is running — it injects `enable_thinking: false` by default.
+### Model hangs on load
+**Always use `-dio` flag.** Without it, loading hangs silently on models >~6 GB on Strix Halo.
+
+### GPU not visible to llama-server
+Check `/dev/kfd`, `/dev/dri/card0`, `/dev/dri/renderD128` are accessible.
+If running in a container/LXC, ensure device passthrough is correct.
+
+```bash
+rocminfo | grep gfx1151
+# Should show: gfx1151
+```
+
+### Flash attention not working
+Ensure:
+1. Built with `GGML_HIP_ROCWMMA_FATTN=ON`
+2. Running with `-fa on` flag
+3. `rocwmma-dev` package is installed
+
+### HIP VMM errors
+Rebuild with `GGML_HIP_NO_VMM=ON`. This is the single most important Strix Halo flag.
+
+### `no kernel image available`
+Your build targeted the wrong GPU arch. Rebuild with `GPU_TARGETS=gfx1151`.
 
 ### Slow first response
 Normal — the model needs to load into GPU memory on first request (~5s). Subsequent requests are fast.
 
-### `CUDA error: no kernel image is available for execution`
-Your llama.cpp build targeted the wrong CUDA arch. Rebuild with `-DCMAKE_CUDA_ARCHITECTURES=120`.
+---
+
+## Acknowledgements
+
+- [Lychee-Technology/llama-cpp-for-strix-halo](https://github.com/Lychee-Technology/llama-cpp-for-strix-halo) — Strix Halo build documentation and prebuilt binaries
+- [ggml-org/llama.cpp discussion #20856](https://github.com/ggml-org/llama.cpp/discussions/20856) — Known-good Strix Halo ROCm + llama.cpp stack
+- [Jeff Geerling](https://www.jeffgeerling.com/blog/2025/increasing-vram-allocation-on-amd-ai-apus-under-linux/) — TTM memory parameter documentation
+- [ZengboJamesWang/Qwen3.5-35B-A3B-openclaw-dgx-spark](https://github.com/ZengboJamesWang/Qwen3.5-35B-A3B-openclaw-dgx-spark) — Original DGX Spark setup this repo is based on

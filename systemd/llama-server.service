@@ -1,5 +1,5 @@
 [Unit]
-Description=llama.cpp server (Qwen3.5-35B-A3B)
+Description=llama.cpp server (Qwen3-Coder-Next, Strix Halo)
 After=network.target
 Before=llama-proxy.service
 
@@ -7,13 +7,15 @@ Before=llama-proxy.service
 Type=simple
 User=YOUR_USERNAME
 ExecStart=/usr/local/bin/llama-server \
-    --model /opt/llama.cpp/models/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \
+    --model /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M \
     --ctx-size 131072 \
     --parallel 1 \
     --host 127.0.0.1 \
     --port 8001 \
-    -ngl 99 \
-    -fa on
+    -ngl 999 \
+    -fa on \
+    -dio \
+    --jinja
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:/var/log/llama-server.log

@@ -8,9 +8,9 @@
       "api": "openai-completions",
       "models": [
         {
-          "id": "Qwen3.5-35B-A3B",
-          "name": "Qwen3.5-35B-A3B (local)",
-          "reasoning": true,
+          "id": "Qwen3-Coder-Next-Q4_K_M",
+          "name": "Qwen3-Coder-Next (local, Strix Halo)",
+          "reasoning": false,
           "input": ["text"],
           "cost": {
             "input": 0,
@@ -27,6 +27,6 @@
 
   "_comment_alias": "Add this entry inside your existing agents.defaults.models object",
   "agents.defaults.models": {
-    "llamacpp/Qwen3.5-35B-A3B": { "alias": "qwen" }
+    "llamacpp/Qwen3-Coder-Next-Q4_K_M": { "alias": "coder" }
   }
 }

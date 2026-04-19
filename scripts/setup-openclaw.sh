@@ -11,6 +11,10 @@ INSTALL_DIR="/opt/llama.cpp"
 PROXY_SRC="${REPO_DIR}/proxy/llama-proxy.py"
 SYSTEMD_DIR="/etc/systemd/system"
 
+# ── Model path (edit if your model is elsewhere) ───────────────────────────────
+# Multi-part GGUF: point to any shard — llama-server discovers the rest automatically
+MODEL_PATH="${MODEL_PATH:-/srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M}"
+
 # Detect the user who invoked sudo (so we run the proxy as that user, not root)
 PROXY_USER="${SUDO_USER:-$(logname 2>/dev/null || echo nobody)}"
 PYTHON_BIN="$(su - "${PROXY_USER}" -c 'which python3' 2>/dev/null || which python3)"
@@ -34,7 +38,7 @@ chmod 755 "${INSTALL_DIR}/llama-proxy.py"
 info "Writing systemd unit: llama-server.service (port 8001)..."
 cat > "${SYSTEMD_DIR}/llama-server.service" << EOF
 [Unit]
-Description=llama.cpp server (Qwen3.5-35B-A3B)
+Description=llama.cpp server (Qwen3-Coder-Next, Strix Halo)
 After=network.target
 Before=llama-proxy.service
 
@@ -42,13 +46,15 @@ Before=llama-proxy.service
 Type=simple
 User=${PROXY_USER}
 ExecStart=/usr/local/bin/llama-server \\
-    --model ${INSTALL_DIR}/models/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf \\
+    --model ${MODEL_PATH} \\
     --ctx-size 131072 \\
     --parallel 1 \\
     --host 127.0.0.1 \\
     --port 8001 \\
-    -ngl 99 \\
-    -fa on
+    -ngl 999 \\
+    -fa on \\
+    -dio \\
+    --jinja
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:/var/log/llama-server.log
