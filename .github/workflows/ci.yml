@@ -26,33 +26,12 @@ jobs:
       - name: Validate systemd units
         run: |
           set -e
-          for f in systemd/*.service; do
-            echo "Checking: $f"
-            python3 -c "
-import configparser, sys
-c = configparser.ConfigParser()
-c.read('$f')
-print(f'  Unit: {c[\"Unit\"][\"Description\"]}')
-print(f'  ExecStart: {c[\"Service\"][\"ExecStart\"]}')
-" && echo "  OK" || { echo "  FAILED"; exit 1; }
-          done
+          python3 scripts/validate-systemd.py
 
       - name: Validate openclaw JSON
         run: |
           set -e
-          python3 -c "
-import json, sys
-with open('openclaw/provider-snippet.json') as f:
-    data = json.load(f)
-providers = data.get('providers', {})
-llamacpp = providers.get('llamacpp', {})
-models = llamacpp.get('models', [{}])
-print(f'Provider: llamacpp')
-print(f'  baseUrl: {llamacpp.get(\"baseUrl\")}')
-print(f'  model id: {models[0].get(\"id\")}')
-print(f'  contextWindow: {models[0].get(\"contextWindow\")}')
-print('  OK')
-"
+          python3 scripts/validate-openclaw.py
 
   build-llama-cpp:
     name: Build llama.cpp for Strix Halo
