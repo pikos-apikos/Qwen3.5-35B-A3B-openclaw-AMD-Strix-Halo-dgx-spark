@@ -24,8 +24,14 @@ print(f"  model id: {m.get('id')}")
 print(f"  contextWindow: {m.get('contextWindow')}")
 print(f"  reasoning: {m.get('reasoning')}")
 
-required = ["id", "name", "baseUrl"]
-for field in required:
+required_provider = ["baseUrl"]
+for field in required_provider:
+    if field not in llamacpp:
+        print(f"ERROR: missing field '{field}' in llamacpp provider")
+        sys.exit(1)
+
+required_model = ["id", "name"]
+for field in required_model:
     if field not in m:
         print(f"ERROR: missing field '{field}' in model config")
         sys.exit(1)
