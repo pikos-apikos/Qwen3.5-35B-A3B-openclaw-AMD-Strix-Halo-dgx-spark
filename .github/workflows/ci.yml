@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check shell scripts for syntax errors
-        run |
+        run: |
           set -e
           for f in scripts/*.sh; do
             echo "Checking: $f"
@@ -24,7 +24,7 @@ jobs:
           done
 
       - name: Validate systemd units
-        run |
+        run: |
           set -e
           for f in systemd/*.service; do
             echo "Checking: $f"
@@ -38,7 +38,7 @@ print(f'  ExecStart: {c[\"Service\"][\"ExecStart\"]}')
           done
 
       - name: Validate openclaw JSON
-        run |
+        run: |
           set -e
           python3 -c "
 import json, sys
@@ -64,7 +64,7 @@ print('  OK')
         uses: actions/checkout@v4
 
       - name: Set version variables
-        run |
+        run: |
           if [ -f llama_cpp_version ]; then
             source ./llama_cpp_version
             echo "LLAMA_CPP_VER=$LLAMA_CPP_VER" >> $GITHUB_ENV
@@ -73,12 +73,12 @@ print('  OK')
           fi
 
       - name: Install build tools
-        run |
+        run: |
           sudo apt-get update -qq
           sudo apt-get install -y cmake build-essential ninja-build ccache libcurl4-openssl-dev
 
       - name: Install ROCm
-        run |
+        run: |
           wget -q https://repo.radeon.com/amdgpu-install/7.2.1/ubuntu/noble/amdgpu-install_7.2.1.70201-1_all.deb -O amdgpu-install.deb
           sudo apt install -y ./amdgpu-install.deb
           sudo apt update
@@ -86,11 +86,11 @@ print('  OK')
           echo "/opt/rocm/bin" >> $GITHUB_PATH
 
       - name: Clone llama.cpp
-        run |
+        run: |
           git clone --depth 1 --branch ${LLAMA_CPP_VER:-latest} https://github.com/ggml-org/llama.cpp.git
 
       - name: Build
-        run |
+        run: |
           cd llama.cpp
           export ROCM_PATH=/opt/rocm
           export LLVM_BIN="$(hipconfig -l)"
@@ -108,7 +108,7 @@ print('  OK')
           cmake --build build --config Release -j$(nproc)
 
       - name: Package
-        run |
+        run: |
           tar -cJf llama-cpp-strix-halo.tar.xz -C llama.cpp/build/bin .
 
       - name: Upload artifact
