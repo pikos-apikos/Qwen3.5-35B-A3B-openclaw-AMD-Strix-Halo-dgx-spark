@@ -29,7 +29,10 @@ die()  { echo -e "${RED}[setup-systemd] ERROR:${NC} $*" >&2; exit 1; }
 # ── 0. Checks ─────────────────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || die "Run this script as root (sudo bash $0)"
 [[ -f "${PROXY_SRC}" ]] || die "Proxy script not found at ${PROXY_SRC}"
-command -v llama-server &>/dev/null || die "llama-server not found — run install.sh first"
+command -v llama-server &>/dev/null \
+    || [[ -x /usr/local/bin/llama-server ]] \
+    || [[ -x /opt/llama.cpp/build/bin/llama-server ]] \
+    || die "llama-server not found — run install.sh first"
 
 # ── 1. Copy proxy script ──────────────────────────────────────────────────────
 info "Installing proxy to ${INSTALL_DIR}/llama-proxy.py..."
