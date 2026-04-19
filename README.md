@@ -37,15 +37,17 @@ The Qwen3-Coder-Next Q4_K_M model uses ~21 GB, leaving ample headroom for contex
 
 ```bash
 # Ubuntu 24.04 example
-sudo apt-get install -y curl
-curl -LO https://repo.radeon.com/rocm/rocm.gpg.key
-sudo mkdir -p /etc/apt/keyrings
-sudo mv rocm.gpg.key /etc/apt/keyrings/rocm.gpg
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/latest noble main" \
+curl -sL https://repo.radeon.com/rocm/rocm.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
+
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.1 noble main" \
     | sudo tee /etc/apt/sources.list.d/rocm.list
+
 sudo apt-get update -qq
 sudo apt-get install -y rocm-hip-sdk
 ```
+
+> **Note:** Use `jammy` instead of `noble` if you are on Ubuntu 22.04.
+> For the latest ROCm, replace `7.2.1` with `latest` in the repo URL.
 
 Verify your GPU is visible:
 

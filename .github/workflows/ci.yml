@@ -79,10 +79,11 @@ print('  OK')
 
       - name: Install ROCm
         run: |
-          wget -q https://repo.radeon.com/amdgpu-install/7.2.1/ubuntu/noble/amdgpu-install_7.2.1.70201-1_all.deb -O amdgpu-install.deb
-          sudo apt install -y ./amdgpu-install.deb
-          sudo apt update
-          sudo apt install -y rocm
+          curl -sL https://repo.radeon.com/rocm/rocm.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.1 noble main" \
+              | sudo tee /etc/apt/sources.list.d/rocm.list
+          sudo apt-get update -qq
+          sudo apt-get install -y rocm-hip-sdk
           echo "/opt/rocm/bin" >> $GITHUB_PATH
 
       - name: Clone llama.cpp
