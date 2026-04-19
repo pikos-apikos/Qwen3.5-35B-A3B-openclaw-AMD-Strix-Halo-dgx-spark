@@ -207,12 +207,17 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(e.read())
 
+        except BrokenPipeError:
+            log.warning("Client disconnected during response")
         except Exception as e:
             log.error("Proxy error: %s", e)
-            self.send_response(502)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(f"Proxy error: {e}".encode())
+            try:
+                self.send_response(502)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(f"Proxy error: {e}".encode())
+            except Exception:
+                pass
 
     def do_GET(self):     self.do_request("GET")
     def do_POST(self):    self.do_request("POST")
