@@ -21,7 +21,8 @@ The Qwen3-Coder-Next Q4_K_M model uses ~21 GB, leaving ample headroom for contex
 | File | Purpose |
 |------|---------|
 | `scripts/install.sh` | Builds llama.cpp from source with HIP/ROCm (gfx1151) |
-| `scripts/setup-openclaw.sh` | Installs the proxy and systemd units |
+| `scripts/setup-systemd.sh` | Installs llama-server + llama-proxy as systemd services |
+| `scripts/setup-openclaw.sh` | Configures openclaw to use the running llama-proxy |
 | `proxy/llama-proxy.py` | Proxy that makes llama-server compatible with openclaw |
 | `systemd/llama-server.service` | systemd unit for llama-server (port 8001) |
 | `systemd/llama-proxy.service` | systemd unit for the proxy (port 8000) |
@@ -29,21 +30,17 @@ The Qwen3-Coder-Next Q4_K_M model uses ~21 GB, leaving ample headroom for contex
 
 ---
 
-## Prerequisites
-
-### 1. ROCm
-
-`llama.cpp` on Strix Halo requires **ROCm 7.x**. Install from AMD's official repo:
+## Quick start
 
 ```bash
-# Ubuntu 24.04 example
-curl -sL https://repo.radeon.com/rocm/rocm.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/rocm.gpg
+# 1. Build llama.cpp (HIP/ROCm for Strix Halo)
+sudo bash scripts/install.sh
 
-echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.1 noble main" \
-    | sudo tee /etc/apt/sources.list.d/rocm.list
+# 2. Install systemd services (llama-server + llama-proxy)
+sudo bash scripts/setup-systemd.sh
 
-sudo apt-get update -qq
-sudo apt-get install -y rocm-hip-sdk
+# 3. Configure openclaw to use the proxy
+sudo bash scripts/setup-openclaw.sh
 ```
 
 > **Note:** Use `jammy` instead of `noble` if you are on Ubuntu 22.04.
@@ -110,10 +107,10 @@ sudo bash scripts/setup-openclaw.sh
 # 3. Add the provider to openclaw (see Section 3 below)
 ```
 
-Custom model path:
+Custom model path (passed to setup-systemd.sh):
 
 ```bash
-MODEL_PATH=/path/to/your/model sudo bash scripts/setup-openclaw.sh
+MODEL_PATH=/path/to/your/model sudo bash scripts/setup-systemd.sh
 ```
 
 ---
@@ -210,10 +207,10 @@ It does three things on every request:
 3. If the user's message starts with `[think]`, strips the keyword and injects
    `{"enable_thinking": true}` instead (full reasoning mode)
 
-### Install the proxy as a systemd service
+### Install systemd services
 
 ```bash
-sudo bash scripts/setup-openclaw.sh
+sudo bash scripts/setup-systemd.sh
 ```
 
 Or manually:
