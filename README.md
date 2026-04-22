@@ -50,6 +50,24 @@ The openclaw provider uses the **`openai-responses`** API.
 
 ---
 
+## Why llama-swap?
+
+The original approach used a custom Python proxy (`llama-proxy.py`) to handle two problems: unknown message roles and thinking mode. While it worked, it had limitations:
+
+| | Custom proxy | llama-swap |
+|--|--|--|
+| Multi-model support | Requires manual port management | Auto-launches per model |
+| Concurrent models | Not supported | Full support |
+| Model TTL / unloading | Manual | Built-in TTL per model |
+| OpenAI-compatible endpoint | Single model | Single endpoint, routes by alias |
+| Role rewriting | ✅ Built-in | ❌ Not needed (use `openai-responses` API) |
+
+llama-swap replaces the proxy + manual llama-server setup with a lightweight gateway that handles model lifecycle automatically. One endpoint serves all models — openclaw just picks by alias.
+
+The original `proxy/llama-proxy.py` is kept in the repo for cases where you need role rewriting or thinking control on a standalone llama-server endpoint.
+
+---
+
 ## Quick start
 
 ```bash
