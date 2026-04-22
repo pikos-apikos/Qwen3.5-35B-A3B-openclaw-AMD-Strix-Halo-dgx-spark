@@ -5,10 +5,10 @@
     "llamacpp": {
       "baseUrl": "http://127.0.0.1:8000/v1",
       "apiKey": "llamacpp-local",
-      "api": "openai-completions",
+      "api": "openai-responses",
       "models": [
         {
-          "id": "Qwen3-Coder-Next-Q4_K_M",
+          "id": "qwen3-coder-next",
           "name": "Qwen3-Coder-Next (local, Strix Halo)",
           "reasoning": false,
           "input": ["text"],
@@ -27,6 +27,6 @@
 
   "_comment_alias": "Add this entry inside your existing agents.defaults.models object",
   "agents.defaults.models": {
-    "llamacpp/Qwen3-Coder-Next-Q4_K_M": { "alias": "coder" }
+    "llamacpp/qwen3-coder-next": { "alias": "coder" }
   }
 }

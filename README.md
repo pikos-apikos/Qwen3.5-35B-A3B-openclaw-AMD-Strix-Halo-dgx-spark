@@ -21,12 +21,32 @@ The Qwen3-Coder-Next Q4_K_M model uses ~21 GB, leaving ample headroom for contex
 | File | Purpose |
 |------|---------|
 | `scripts/install.sh` | Builds llama.cpp from source with HIP/ROCm (gfx1151) |
-| `scripts/setup-systemd.sh` | Installs llama-server + llama-proxy as systemd services |
-| `scripts/setup-openclaw.sh` | Configures openclaw to use the running llama-proxy |
-| `proxy/llama-proxy.py` | Proxy that makes llama-server compatible with openclaw |
-| `systemd/llama-server.service` | systemd unit for llama-server (port 8001) |
-| `systemd/llama-proxy.service` | systemd unit for the proxy (port 8000) |
+| `scripts/install-llama-swap.sh` | Downloads llama-swap binary |
+| `scripts/setup-systemd.sh` | Installs llama-swap as a systemd service |
+| `scripts/setup-openclaw.sh` | Configures openclaw to use llama-swap |
+| `llama-swap/config.yaml` | Template config for llama-swap gateway |
 | `openclaw/provider-snippet.json` | Drop-in config snippet for `~/.openclaw/openclaw.json` |
+| `proxy/llama-proxy.py` | Optional: role/thinking rewrite proxy (see note below) |
+
+---
+
+## Architecture
+
+```
+openclaw  →  llama-swap (port 8000)  →  llama-server (auto-launched per model)
+```
+
+**llama-swap** ([mostlygeek/llama-swap](https://github.com/mostlygeek/llama-swap)) is a lightweight model gateway that:
+- Exposes a single OpenAI-compatible endpoint
+- Auto-launches each model's llama-server on a free port
+- Routes requests by model alias (e.g. `qwen3-coder-next`, `coder`)
+- Unloads idle models after TTL (avoids VRAM thrashing)
+- Supports concurrent models — one endpoint for all local LLMs
+
+The openclaw provider uses the **`openai-responses`** API.
+
+> **Note:** If you need role rewriting (`developer→system`, `toolResult→tool`) or thinking
+> control for a raw llama-server, use `proxy/llama-proxy.py` instead of llama-swap.
 
 ---
 
@@ -36,10 +56,13 @@ The Qwen3-Coder-Next Q4_K_M model uses ~21 GB, leaving ample headroom for contex
 # 1. Build llama.cpp (HIP/ROCm for Strix Halo)
 sudo bash scripts/install.sh
 
-# 2. Install systemd services (llama-server + llama-proxy)
+# 2. Download llama-swap binary
+sudo bash scripts/install-llama-swap.sh
+
+# 3. Install llama-swap as a systemd service
 sudo bash scripts/setup-systemd.sh
 
-# 3. Configure openclaw to use the proxy
+# 4. Configure openclaw
 sudo bash scripts/setup-openclaw.sh
 ```
 
@@ -142,9 +165,10 @@ cmake -S . -B build \
 
 ---
 
-## llama-server runtime flags
+## llama-server flags (configured in llama-swap config.yaml)
 
-The systemd unit and `setup-openclaw.sh` use these flags:
+llama-swap launches llama-server instances automatically. Flags per model are set in
+`/opt/llama-swap/config.yaml`:
 
 ```bash
 llama-server \
@@ -152,7 +176,7 @@ llama-server \
     --ctx-size 131072 \
     --parallel 1 \
     --host 127.0.0.1 \
-    --port 8001 \
+    --port ${PORT}          # assigned by llama-swap
     -ngl 999 \
     -fa on \
     -dio \
@@ -167,98 +191,44 @@ llama-server \
 | `--jinja` | Enable Jinja chat template processing |
 | `--parallel 1` | Best single-user throughput |
 | `--ctx-size 131072` | 128k context |
+| `--temp 0.0` | Deterministic output for coding tasks |
 
 ---
 
-## Section 2 — Making it work with openclaw (the proxy)
+## llama-swap config
 
-openclaw cannot talk to llama-server directly. Two incompatibilities need to be fixed:
+Edit `/opt/llama-swap/config.yaml` to add models or change aliases. Each model
+launches on a dynamic port managed by llama-swap. See the template at
+[`llama-swap/config.yaml`](llama-swap/config.yaml).
 
-### Problem 1: Unknown message roles
+Key llama-swap endpoints:
 
-openclaw sends messages with roles that the Qwen3.5 Jinja chat template does not accept:
-
-| openclaw sends | Qwen3.5 expects | Fix |
-|----------------|-----------------|-----|
-| `"role": "developer"` | `"role": "system"` | Rewrite in proxy |
-| `"role": "toolResult"` | `"role": "tool"` | Rewrite in proxy |
-
-Without this fix, every request returns `HTTP 500: Unexpected message role.`
-
-### Problem 2: Thinking mode
-
-Qwen3.5 is a reasoning model. By default it spends tokens on a `<think>` block before
-answering. openclaw has no way to control this — the model would consume all its token
-budget thinking and return an empty `content` field.
-
-### The proxy
-
-`proxy/llama-proxy.py` is a lightweight Python proxy (stdlib only, no dependencies)
-that sits between openclaw and llama-server:
-
-```
-openclaw  →  port 8000 (llama-proxy)  →  port 8001 (llama-server)
-```
-
-It does three things on every request:
-
-1. Rewrites `developer` → `system` and `toolResult` → `tool`
-2. Injects `{"enable_thinking": false}` by default (fast direct answers)
-3. If the user's message starts with `[think]`, strips the keyword and injects
-   `{"enable_thinking": true}` instead (full reasoning mode)
-
-### Install systemd services
-
-```bash
-sudo bash scripts/setup-systemd.sh
-```
-
-Or manually:
-
-```bash
-cp proxy/llama-proxy.py /opt/llama.cpp/llama-proxy.py
-cp systemd/llama-server.service /etc/systemd/system/
-cp systemd/llama-proxy.service  /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable llama-server llama-proxy
-systemctl start  llama-server llama-proxy
-```
-
-Verify:
-
-```bash
-curl http://127.0.0.1:8000/health
-# {"status":"ok"}
-```
-
-### Using `[think]` mode
-
-Prefix any message in openclaw with `[think]` to enable reasoning:
-
-```
-[think] explain the difference between a mutex and a semaphore
-```
-
-The keyword is stripped before the message reaches the model.
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /v1/models` | List available models |
+| `GET /running` | Show currently loaded models |
+| `POST /upstream/:model_id/load` | Pre-load a model |
+| `POST /upstream/:model_id/unload` | Unload a model |
+| `GET /ui` | Web UI |
 
 ---
 
-## Section 3 — Configure openclaw
+## openclaw configuration
 
-Add the `llamacpp` provider to `~/.openclaw/openclaw.json`.
+The openclaw provider uses the **`openai-responses`** API and connects to llama-swap's
+single endpoint at `http://127.0.0.1:8000/v1`.
 
-The full snippet is in [`openclaw/provider-snippet.json`](openclaw/provider-snippet.json).
-
-In your `openclaw.json`, merge the following into `"models" > "providers"`:
+Copy [`openclaw/provider-snippet.json`](openclaw/provider-snippet.json) into your
+`~/.openclaw/openclaw.json` under `"models"` > `"providers"`:
 
 ```json
 "llamacpp": {
   "baseUrl": "http://127.0.0.1:8000/v1",
   "apiKey": "llamacpp-local",
-  "api": "openai-completions",
+  "api": "openai-responses",
   "models": [
     {
-      "id": "Qwen3-Coder-Next-Q4_K_M",
+      "id": "qwen3-coder-next",
       "name": "Qwen3-Coder-Next (local, Strix Halo)",
       "reasoning": false,
       "input": ["text"],
@@ -273,23 +243,26 @@ In your `openclaw.json`, merge the following into `"models" > "providers"`:
 And in `"agents" > "defaults" > "models"`, add an alias:
 
 ```json
-"llamacpp/Qwen3-Coder-Next-Q4_K_M": {
+"llamacpp/qwen3-coder-next": {
   "alias": "coder"
 }
 ```
 
-You can now select the model in openclaw with `/model coder` or set it as your primary
-model in the `agents.defaults.model.primary` field.
+Select the model in openclaw with `/model coder` or set it as your primary
+model in `agents.defaults.model.primary`.
 
 ---
 
 ## Rebuilding after upstream updates
 
 ```bash
+# Rebuild llama.cpp
 cd /opt/llama.cpp
 git pull
 cmake --build build --config Release -j $(nproc)
-sudo systemctl restart llama-server
+
+# Reload llama-swap (it will re-launch llama-server with the new binary)
+sudo systemctl restart llama-swap
 ```
 
 ---
@@ -309,16 +282,21 @@ Strix Halo has ~90 GB GPU-accessible unified memory (up to 128 GB depending on c
 
 ## Troubleshooting
 
-### `HTTP 500: Unexpected message role`
-The proxy is not running or openclaw is not pointing at port 8000.
+### llama-swap not responding
 
 ```bash
-systemctl status llama-proxy
-curl http://127.0.0.1:8000/health
+systemctl status llama-swap
+journalctl -u llama-swap -n 30
+curl http://127.0.0.1:8000/v1/models
 ```
 
 ### Model hangs on load
-**Always use `-dio` flag.** Without it, loading hangs silently on models >~6 GB on Strix Halo.
+**Always use `-dio` flag** in the llama-swap config cmd. Without it, loading hangs silently
+on models >~6 GB on Strix Halo.
+
+### Wrong model served
+Check the model `id` in your openclaw config matches the alias in `/opt/llama-swap/config.yaml`.
+Aliases in llama-swap: `qwen3-coder-next`, `coder`. openclaw provider `id`: `qwen3-coder-next`.
 
 ### GPU not visible to llama-server
 Check `/dev/kfd`, `/dev/dri/card0`, `/dev/dri/renderD128` are accessible.
@@ -332,7 +310,7 @@ rocminfo | grep gfx1151
 ### Flash attention not working
 Ensure:
 1. Built with `GGML_HIP_ROCWMMA_FATTN=ON`
-2. Running with `-fa on` flag
+2. Running with `-fa on` flag in llama-swap config
 3. `rocwmma-dev` package is installed
 
 ### HIP VMM errors
@@ -343,11 +321,13 @@ Your build targeted the wrong GPU arch. Rebuild with `GPU_TARGETS=gfx1151`.
 
 ### Slow first response
 Normal — the model needs to load into GPU memory on first request (~5s). Subsequent requests are fast.
+Use the llama-swap `/upstream/:model_id/load` endpoint to pre-load before use.
 
 ---
 
 ## Acknowledgements
 
+- [mostlygeek/llama-swap](https://github.com/mostlygeek/llama-swap) — Model gateway for concurrent multi-model llama.cpp serving
 - [Lychee-Technology/llama-cpp-for-strix-halo](https://github.com/Lychee-Technology/llama-cpp-for-strix-halo) — Strix Halo build documentation and prebuilt binaries
 - [ggml-org/llama.cpp discussion #20856](https://github.com/ggml-org/llama.cpp/discussions/20856) — Known-good Strix Halo ROCm + llama.cpp stack
 - [Jeff Geerling](https://www.jeffgeerling.com/blog/2025/increasing-vram-allocation-on-amd-ai-apus-under-linux/) — TTM memory parameter documentation

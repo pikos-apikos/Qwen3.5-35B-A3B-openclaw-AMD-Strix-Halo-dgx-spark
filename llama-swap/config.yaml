@@ -1,0 +1,58 @@
+# llama-swap config — single gateway for all local LLMs
+#
+# Copy this to /opt/llama-swap/config.yaml and edit model paths as needed.
+# llama-swap auto-launches each llama-server instance and routes requests
+# by model alias. Concurrent models are supported; idle models are
+# unloaded after their TTL expires.
+#
+# Docs: https://github.com/mostlygeek/llama-swap
+
+listen: "127.0.0.1:8000"
+
+models:
+  qwen3:
+    aliases:
+      - qwen3-coder-next
+      - qwen3coder
+      - coder
+    # How long a model stays loaded after last request (seconds)
+    ttl: 900
+    cmd: >
+      /usr/local/bin/llama-server
+      --host 127.0.0.1
+      --port ${PORT}
+      --model /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M
+      --jinja
+      --ctx-size 131072
+      --flash-attn on
+      -ngl 999
+      -fa on
+      -dio
+      --parallel 1
+      --temp 0.0
+      --top-k 40
+      --top-p 0.95
+      --min-p 0.0
+      --metrics
+      --slots
+      --cache-prompt
+
+  # Add more models here, e.g.:
+  # gemma426b:
+  #   aliases:
+  #     - gemma-26b
+  #     - reasoner
+  #   ttl: 900
+  #   cmd: >
+  #     /usr/local/bin/llama-server
+  #     --host 127.0.0.1
+  #     --port ${PORT}
+  #     --model /srv/ai/models/gemma-4-26b-a4b-it/Q4_K_M.gguf
+  #     --jinja
+  #     --ctx-size 65536
+  #     --flash-attn auto
+  #     -ngl 999
+  #     --parallel 1
+  #     --temp 0.0
+  #     --metrics
+  #     --slots
