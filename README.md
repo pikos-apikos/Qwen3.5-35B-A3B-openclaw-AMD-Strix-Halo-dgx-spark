@@ -101,29 +101,36 @@ Also ensure `rocwmma-dev` is installed (required for flash attention):
 sudo apt-get install -y rocwmma-dev
 ```
 
-### 2. Kernel TTM parameters (critical)
+### 2. GPU shared memory (TTM)
 
-Strix Halo shares system RAM with the GPU, but Linux caps GPU-accessible memory by default. You **must** increase TTM limits to use >80 GB.
-
-Add to `/etc/modprobe.d/increase_amd_memory.conf`:
-
-```
-options ttm pages_limit=25600000
-options ttm page_pool_size=25600000
-```
-
-Then apply and reboot:
+Strix Halo uses unified system memory — GPU-accessible memory is controlled by the kernel **Translation Table Manager (TTM)**. The default limit is too small for large models. Set it using the official `amd-ttm` tool:
 
 ```bash
+# Install amd-ttm (from amd-debug-tools)
+sudo apt install pipx
+pipx ensurepath
+pipx install amd-debug-tools
+
+# Check current settings
+amd-ttm
+# Expected: TTM pages limit: ~62 GB on 128 GB systems
+
+# Set usable shared memory (e.g. 100 GB)
+sudo amd-ttm --set 100
+# NOTE: You need to reboot for changes to take effect.
+
+# Verify after reboot
+amd-ttm
+# Should show: TTM pages limit: 100.00 GB
+```
+
+Or manually via kernel params (legacy method):
+
+```bash
+echo "options ttm pages_limit=26214400" | sudo tee /etc/modprobe.d/ttm.conf
+echo "options ttm page_pool_size=26214400" | sudo tee -a /etc/modprobe.d/ttm.conf
 sudo update-initramfs -u -k all
 sudo reboot
-```
-
-Verify it applied:
-
-```bash
-cat /proc/cmdline | grep ttm
-# You should see: ttm.page_pool_size=25600000 ttm.pages_limit=25600000
 ```
 
 ### 3. Model
@@ -134,24 +141,27 @@ Point `setup-openclaw.sh` at your model directory by setting `MODEL_PATH` env va
 
 Default expected path: `/srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M`
 
----
+### 3. Kernel version
 
-## Quick start
+Strix Halo (gfx1151) requires a minimum kernel version for full GPU compute support:
+
+| Distro | Minimum kernel |
+|--------|---------------|
+| Ubuntu 24.04 HWE | `6.17.0-19.19~24.04.2` or later |
+| Ubuntu 24.04 OEM | `6.14.0-1018` or later |
+| Other distros | `6.18.4` or later |
+
+Check your kernel version:
 
 ```bash
-# 1. Build llama.cpp (HIP/ROCm for Strix Halo)
-sudo bash scripts/install.sh
-
-# 2. Install proxy + systemd services
-sudo bash scripts/setup-openclaw.sh
-
-# 3. Add the provider to openclaw (see Section 3 below)
+uname -r
 ```
 
-Custom model path (passed to setup-systemd.sh):
+For Ubuntu 24.04, install a newer HWE kernel if needed:
 
 ```bash
-MODEL_PATH=/path/to/your/model sudo bash scripts/setup-systemd.sh
+sudo apt install linux-image-$(uname -r | cut -d'-' -f1)-hwe-24.04-edge
+sudo reboot
 ```
 
 ---
@@ -317,12 +327,23 @@ Check the model `id` in your openclaw config matches the alias in `/opt/llama-sw
 Aliases in llama-swap: `qwen3-coder-next`, `coder`. openclaw provider `id`: `qwen3-coder-next`.
 
 ### GPU not visible to llama-server
-Check `/dev/kfd`, `/dev/dri/card0`, `/dev/dri/renderD128` are accessible.
-If running in a container/LXC, ensure device passthrough is correct.
 
 ```bash
+# Check TTM limit
+cat /sys/module/ttm/parameters/pages_limit
+# Should be > 20000000 for 80+ GB GPU memory
+
+# Check kernel version is new enough
+uname -r
+# Must be >= 6.17 (Ubuntu 24.04 HWE) or >= 6.18.4 (other distros)
+
+# Check /dev/kfd, /dev/dri/, render DRI permissions
+ls -la /dev/kfd /dev/dri/ /dev/dri/render*
+# Must be accessible to your user
+
+# Verify ROCm sees GPU
 rocminfo | grep gfx1151
-# Should show: gfx1151
+# Should show: gfx1151 (Radeon 8060S)
 ```
 
 ### Flash attention not working
