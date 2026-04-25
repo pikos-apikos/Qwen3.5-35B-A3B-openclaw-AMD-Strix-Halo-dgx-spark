@@ -12,30 +12,21 @@ listen: "127.0.0.1:8000"
 models:
   qwen3:
     aliases:
-      - qwen3-coder-next
-      - qwen3coder
+      - qwen-3
       - coder
+      - agent
     # How long a model stays loaded after last request (seconds)
     ttl: 900
-    cmd: >
-      /usr/local/bin/llama-server
-      --host 127.0.0.1
-      --port ${PORT}
-      --model /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M
+    cmd: |
+      /opt/lychee/bin/llama-server --port ${PORT}
+      -m /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M/Qwen3-Coder-Next-Q4_K_M-00001-of-00004.gguf
       --jinja
-      --ctx-size 131072
-      --flash-attn on
-      -ngl 999
-      -fa on
-      -dio
-      --parallel 1
-      --temp 0.0
-      --top-k 40
-      --top-p 0.95
-      --min-p 0.0
-      --metrics
-      --slots
-      --cache-prompt
+      --ctx-size 98304
+      --rope-scaling yarn --rope-scale 4 --yarn-orig-ctx 262144
+      --no-context-shift --flash-attn on --n-gpu-layers 99
+      --parallel 1 --threads 16 --threads-batch 16
+      --slots --cache-prompt
+      --temp 0.0 --top-k 40 --top-p 0.95 --min-p 0.0
 
   # Add more models here, e.g.:
   # gemma426b:
@@ -43,16 +34,9 @@ models:
   #     - gemma-26b
   #     - reasoner
   #   ttl: 900
-  #   cmd: >
-  #     /usr/local/bin/llama-server
-  #     --host 127.0.0.1
-  #     --port ${PORT}
-  #     --model /srv/ai/models/gemma-4-26b-a4b-it/Q4_K_M.gguf
-  #     --jinja
-  #     --ctx-size 65536
-  #     --flash-attn auto
-  #     -ngl 999
-  #     --parallel 1
-  #     --temp 0.0
-  #     --metrics
-  #     --slots
+  #   cmd: |
+  #     /opt/lychee/bin/llama-server --port ${PORT}
+  #     -m /srv/ai/models/gemma-4-26b-a4b-it/Q4_K_M.gguf
+  #     --jinja --ctx-size 65536 --flash-attn auto --n-gpu-layers 99
+  #     --parallel 1 --threads 16 --threads-batch 16
+  #     --slots --temp 0.0 --top-k 40 --top-p 0.95 --min-p 0.0

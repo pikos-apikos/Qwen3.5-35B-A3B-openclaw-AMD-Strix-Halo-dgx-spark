@@ -196,29 +196,28 @@ cmake -S . -B build \
 ## llama-server flags (configured in llama-swap config.yaml)
 
 llama-swap launches llama-server instances automatically. Flags per model are set in
-`/opt/llama-swap/config.yaml`:
+`/opt/llama-swap/config.yaml` (see the template at [`llama-swap/config.yaml`](llama-swap/config.yaml)):
 
 ```bash
-llama-server \
-    --model /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M \
-    --ctx-size 131072 \
-    --parallel 1 \
-    --host 127.0.0.1 \
-    --port ${PORT}          # assigned by llama-swap
-    -ngl 999 \
-    -fa on \
-    -dio \
-    --jinja
+llama-server --port ${PORT}
+    -m /srv/ai/models/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_M/Qwen3-Coder-Next-Q4_K_M-00001-of-00004.gguf
+    --jinja --ctx-size 98304
+    --rope-scaling yarn --rope-scale 4 --yarn-orig-ctx 262144
+    --no-context-shift --flash-attn on --n-gpu-layers 99
+    --parallel 1 --threads 16 --threads-batch 16
+    --slots --cache-prompt
+    --temp 0.0 --top-k 40 --top-p 0.95 --min-p 0.0
 ```
 
 | Flag | Effect |
 |------|--------|
-| `-ngl 999` | Offload all layers to GPU (use 999, not 99) |
-| `-fa on` | Flash attention (requires `GGML_HIP_ROCWMMA_FATTN=ON` at build time) |
-| `-dio` | **Required for models >~6 GB** — without this, loading hangs |
-| `--jinja` | Enable Jinja chat template processing |
-| `--parallel 1` | Best single-user throughput |
-| `--ctx-size 131072` | 128k context |
+| `--n-gpu-layers 99` | Offload all layers to GPU |
+| `--flash-attn on` | Flash attention (requires `GGML_HIP_ROCWMMA_FATTN=ON` at build) |
+| `--rope-scaling yarn --rope-scale 4` | Extended context scaling for long prompts |
+| `--yarn-orig-ctx 262144` | Base context for rope scaling |
+| `--no-context-shift` | Prevent context window shifting |
+| `--threads 16 --threads-batch 16` | Thread tuning for Strix Halo |
+| `--ctx-size 98304` | 98k effective context after rope scaling |
 | `--temp 0.0` | Deterministic output for coding tasks |
 
 ---
